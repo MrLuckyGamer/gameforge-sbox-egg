@@ -186,6 +186,9 @@ verify_dotnet_runtime() {
     local clrcore_path
     
     echo "info: verifying Windows .NET runtime in Wine prefix..." >&2
+    echo "  WINEPREFIX: ${WINEPREFIX}" >&2
+    echo "  WINEARCH: ${WINEARCH}" >&2
+    echo "  WIN_DOTNET_VERSION: ${WIN_DOTNET_VERSION}" >&2
     
     # Check for hostfxr.dll
     hostfxr_path="$(find "${win_dotnet_dir}" -type f -name hostfxr.dll 2>/dev/null | head -n 1 || true)"
@@ -195,34 +198,57 @@ verify_dotnet_runtime() {
         hostfxr_path="$(find "${WINEPREFIX}" -type f -name hostfxr.dll 2>/dev/null | head -n 1 || true)"
         if [ -n "${hostfxr_path}" ]; then
             echo "info: found hostfxr at: ${hostfxr_path}" >&2
+        else
+            echo "error: hostfxr.dll not found anywhere in WINEPREFIX" >&2
         fi
     else
-        echo "info: found hostfxr at: ${hostfxr_path}" >&2
+        echo "ok: found hostfxr at: ${hostfxr_path}" >&2
     fi
     
     # Check for coreclr.dll
     clrcore_path="$(find "${WINEPREFIX}" -type f -name coreclr.dll 2>/dev/null | head -n 1 || true)"
     if [ -n "${clrcore_path}" ]; then
-        echo "info: found coreclr at: ${clrcore_path}" >&2
+        echo "ok: found coreclr at: ${clrcore_path}" >&2
     else
-        echo "warn: coreclr.dll not found; this will cause CLR initialization failures" >&2
+        echo "error: coreclr.dll not found; CLR initialization will fail" >&2
+    fi
+    
+    # Check for mscoree.dll
+    local mscoree_path
+    mscoree_path="$(find "${WINEPREFIX}" -type f -name mscoree.dll 2>/dev/null | head -n 1 || true)"
+    if [ -n "${mscoree_path}" ]; then
+        echo "ok: found mscoree at: ${mscoree_path}" >&2
+    else
+        echo "warn: mscoree.dll not found" >&2
     fi
     
     # List what's actually in the Wine .NET directory
     if [ -d "${win_dotnet_dir}" ]; then
-        echo "info: contents of ${win_dotnet_dir}:" >&2
-        ls -la "${win_dotnet_dir}" 2>&1 | head -20 | sed 's/^/  /' >&2
+        echo "info: Windows .NET directory contents:" >&2
+        ls -la "${win_dotnet_dir}" 2>&1 | head -30 | sed 's/^/  /' >&2
     else
         echo "warn: Windows .NET directory does not exist: ${win_dotnet_dir}" >&2
-        echo "info: listing WINEPREFIX drive_c structure:" >&2
-        find "${WINEPREFIX}/drive_c" -maxdepth 3 -type d -name '*dotnet*' 2>/dev/null | sed 's/^/  /' >&2
+        echo "info: searching for dotnet installations in WINEPREFIX:" >&2
+        find "${WINEPREFIX}/drive_c" -maxdepth 3 -type d \( -name dotnet -o -name '.dotnet' \) 2>/dev/null | sed 's/^/  /' >&2
+    fi
+    
+    # Check Wine version
+    echo "info: Wine version:" >&2
+    wine --version 2>&1 | sed 's/^/  /' >&2
+    
+    # Check if S&Box can at least load
+    echo "info: checking S&Box executable..." >&2
+    if [ -f "${SBOX_SERVER_EXE}" ]; then
+        local file_output
+        file_output="$(file "${SBOX_SERVER_EXE}" 2>&1 || true)"
+        echo "  ${file_output}" | sed 's/^/  /' >&2
     fi
 }
 
 run_sbox() {
     local -a args
     local -a extra
-    local log_file
+    local log_file="${1:-}"
 
     if ! resolve_server_exe; then
         echo "fatal: no Windows S&Box server executable found under ${SBOX_INSTALL_DIR}. Verify STEAM_PLATFORM=windows and app/depot content." >&2
@@ -262,9 +288,12 @@ run_sbox() {
     # Strip Linux .NET env vars so Wine uses the Windows runtime inside the prefix.
     unset DOTNET_ROOT DOTNET_ROOT_X86
 
-    # Ensure logs directory exists
-    mkdir -p "${CONTAINER_HOME}/logs"
-    log_file="${CONTAINER_HOME}/logs/sbox-server.log"
+    # If no log file provided, create one
+    if [ -z "${log_file}" ]; then
+        local timestamp="$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "${CONTAINER_HOME}/logs"
+        log_file="${CONTAINER_HOME}/logs/sbox-server-${timestamp}.log"
+    fi
 
     cd "${SBOX_INSTALL_DIR}"
     
@@ -490,10 +519,23 @@ if [ "$#" -eq 0 ] || [ "${1:-}" = "start-sbox" ]; then
         exec "$@"
     fi
 
-    # Verify .NET runtime before launching
-    verify_dotnet_runtime
+    # Create a timestamped log file from the start
+    local timestamp="$(date +%Y%m%d-%H%M%S)"
+    local logs_dir="${CONTAINER_HOME}/logs"
+    mkdir -p "${logs_dir}"
+    local diag_log="${logs_dir}/sbox-server-${timestamp}.log"
     
-    run_sbox
+    # Run diagnostics and capture to log file
+    {
+        echo "=== S&Box Runtime Diagnostics at $(date -u) ==="
+        echo ""
+        verify_dotnet_runtime
+        echo ""
+        echo "=== Starting Server ==="
+    } >> "${diag_log}" 2>&1
+    
+    # Now run S&Box with the same log file
+    run_sbox "${diag_log}"
 fi
 
 exec "$@"
