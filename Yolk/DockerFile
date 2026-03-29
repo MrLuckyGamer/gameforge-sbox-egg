@@ -83,9 +83,9 @@ RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .
     fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Runtime
+# Stage 2: Runtime (match dxura base as closely as possible)
 # ─────────────────────────────────────────────────────────────────────────────
-FROM debian:trixie-slim
+FROM alpine:edge
 
 LABEL author="Steven A. Smith" maintainer="steven.smith@hyberhost.com"
 LABEL description="S&Box Pterodactyl Egg (dxura-adapted)" version="2.0" license="MIT"
@@ -96,12 +96,9 @@ LABEL org.opencontainers.image.authors="Steven A. Smith" \
 
 ARG PUID=999
 ARG PGID=999
-ARG DEBIAN_FRONTEND=noninteractive
 
 ENV CONTAINER_HOME=/home/container \
     HOME=/home/container \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
     WINEPREFIX=/home/container/.wine \
     WINEARCH=win64 \
     WINEDEBUG=-all \
@@ -133,74 +130,29 @@ ENV CONTAINER_HOME=/home/container \
     SBOX_PROJECT= \
     SBOX_EXTRA_ARGS= \
     STEAMCMD_BIN= \
-    XDG_RUNTIME_DIR=/tmp \
-    DISPLAY=:99 \
-    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+     XDG_RUNTIME_DIR=/tmp
 
-RUN dpkg --add-architecture i386 \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-       bash \
-       ca-certificates \
-       cabextract \
-       curl \
-       libgcc-s1 \
-       libgcc-s1:i386 \
-       libpulse0 \
-       libpulse0:i386 \
-       libstdc++6 \
-       libstdc++6:i386 \
-       libx11-6 \
-       libx11-6:i386 \
-       libxext6 \
-       libxext6:i386 \
-    iproute2 \
-    procps \
-    strace \
-       tar \
-       tini \
-       unzip \
-       wget \
-       wine \
-       wine32 \
-       wine64 \
-       winbind \
-       xauth \
-       xvfb \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+         bash \
+         ca-certificates \
+         gnutls \
+         tar \
+         wget \
+         wine
 
-RUN wget -qO /usr/local/bin/winetricks \
-       https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
-    && chmod 0755 /usr/local/bin/winetricks
-
-RUN mkdir -p /opt/steamcmd \
-    && wget -qO /tmp/steamcmd_linux.tar.gz \
-       https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
-    && tar -xzf /tmp/steamcmd_linux.tar.gz -C /opt/steamcmd \
-    && chmod 0755 /opt/steamcmd/steamcmd.sh \
-    && rm -f /tmp/steamcmd_linux.tar.gz \
-    && ln -sf /opt/steamcmd/steamcmd.sh /usr/local/bin/steamcmd
-
-RUN if ! getent group "${PGID}" >/dev/null 2>&1; then groupadd --gid "${PGID}" container; fi \
-    && if ! id -u "${PUID}" >/dev/null 2>&1; then \
-         useradd --uid "${PUID}" --gid "${PGID}" \
-                 --home-dir /home/container \
-                 --create-home --shell /bin/bash container; \
-       fi \
-    && mkdir -p \
-       /home/container/.wine \
-       /home/container/data \
-       /home/container/download \
-       /home/container/logs \
-       /home/container/sbox \
-    && chown -R "${PUID}:${PGID}" /home/container \
-    && chmod 1777 /tmp
+RUN mkdir -p \
+         /home/container/.wine \
+         /home/container/data \
+         /home/container/download \
+         /home/container/logs \
+         /home/container/sbox \
+     && chmod 1777 /tmp
 
 # Copy the baked Wine prefix from the builder stage into a path that is NOT
 # covered by the Pterodactyl /home/container volume bind mount.  The
 # entrypoint will copy this to /home/container/.wine on the first start.
-COPY --from=builder --chown=${PUID}:${PGID} /work/wineprefix /opt/sbox-wine-prefix
-COPY --from=builder --chown=${PUID}:${PGID} /work/server /opt/sbox-server-template
+COPY --from=builder /work/wineprefix /opt/sbox-wine-prefix
+COPY --from=builder /work/server /opt/sbox-server-template
 
 # Pre-initialize the Wine prefix as root so permissions are set correctly
 # This avoids issues when Pterodactyl non-root user tries to copy later.
@@ -208,11 +160,10 @@ RUN cp -a /opt/sbox-wine-prefix /root/.wine && \
     WINEPREFIX=/root/.wine wine "" >/dev/null 2>&1 || true && \
     rm -rf /root/.wine
 
-COPY --chown=999:999 Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 WORKDIR /home/container
-USER ${PUID}:${PGID}
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["start-sbox"]
