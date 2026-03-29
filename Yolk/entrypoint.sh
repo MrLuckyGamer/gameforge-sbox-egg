@@ -93,9 +93,11 @@ fi
 # is stored at BAKED_WINEPREFIX (/opt/sbox-wine-prefix), which is outside the
 # volume mount and always accessible.  Copy it into WINEPREFIX once.
 if [ ! -f "${WINEPREFIX}/system.reg" ] && [ -d "${BAKED_WINEPREFIX}/drive_c" ]; then
-    echo "info: first run — copying baked Wine prefix from ${BAKED_WINEPREFIX} into ${WINEPREFIX}..." >&2
+    echo "info: first run — copying pre-initialized Wine prefix from ${BAKED_WINEPREFIX} into ${WINEPREFIX}..." >&2
     cp -a "${BAKED_WINEPREFIX}/." "${WINEPREFIX}/"
-    echo "info: Wine prefix ready." >&2
+    echo "info: Wine prefix copied and ready." >&2
+elif [ -f "${WINEPREFIX}/system.reg" ]; then
+    echo "info: Wine prefix already initialized at ${WINEPREFIX}" >&2
 fi
 
 ensure_wineprefix_arch
@@ -239,9 +241,16 @@ verify_dotnet_runtime() {
     # Check if S&Box can at least load
     echo "info: checking S&Box executable..." >&2
     if [ -f "${SBOX_SERVER_EXE}" ]; then
-        local file_output
-        file_output="$(file "${SBOX_SERVER_EXE}" 2>&1 || true)"
-        echo "  ${file_output}" | sed 's/^/  /' >&2
+        ls -lh "${SBOX_SERVER_EXE}" 2>&1 | sed 's/^/  /' >&2
+        echo "warn: S&Box built for this .NET version? Check runtimes.json if present" >&2
+        if [ -f "${SBOX_INSTALL_DIR}/runtimes.json" ]; then
+            echo "info: runtimes.json (required .NET version):" >&2
+            cat "${SBOX_INSTALL_DIR}/runtimes.json" 2>/dev/null | head -10 | sed 's/^/    /' >&2
+        fi
+        if [ -f "${SBOX_INSTALL_DIR}/.dotnet-version" ]; then
+            echo "info: .dotnet-version file:" >&2
+            cat "${SBOX_INSTALL_DIR}/.dotnet-version" 2>/dev/null | sed 's/^/    /' >&2
+        fi
     fi
 }
 

@@ -90,6 +90,7 @@ ENV CONTAINER_HOME=/home/container \
     WINEPREFIX=/home/container/.wine \
     WINEARCH=win64 \
     WINEDEBUG=-all \
+    WINEDLLOVERRIDES=icu,icuuc=d \
     # Path to the pre-baked Wine prefix inside the image (not subject to the
     # Pterodactyl /home/container volume mount).  Entrypoint copies this to
     # WINEPREFIX on first start if .wine is absent.
@@ -181,6 +182,12 @@ RUN if ! getent group "${PGID}" >/dev/null 2>&1; then groupadd --gid "${PGID}" c
 # covered by the Pterodactyl /home/container volume bind mount.  The
 # entrypoint will copy this to /home/container/.wine on the first start.
 COPY --from=builder --chown=${PUID}:${PGID} /work/wineprefix /opt/sbox-wine-prefix
+
+# Pre-initialize the Wine prefix as root so permissions are set correctly
+# This avoids issues when Pterodactyl non-root user tries to copy later.
+RUN cp -a /opt/sbox-wine-prefix /root/.wine && \
+    WINEPREFIX=/root/.wine wine "" >/dev/null 2>&1 || true && \
+    rm -rf /root/.wine
 
 COPY --chown=999:999 Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
