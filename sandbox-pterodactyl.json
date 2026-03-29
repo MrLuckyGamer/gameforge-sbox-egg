@@ -1,4 +1,10 @@
 {
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-03-29T13:07:16+01:00",
     "name": "Sandbox (S&box) Server ",
     "author": "team@gameforge.gg",
     "description": "S&Box dedicated server with build-time baked Wine prefix and Windows .NET runtime for stable Pterodactyl startup.",

@@ -21,6 +21,12 @@ TOKEN="${TOKEN:-}"
 SBOX_PROJECT="${SBOX_PROJECT:-}"
 SBOX_EXTRA_ARGS="${SBOX_EXTRA_ARGS:-}"
 
+# Backward compatibility for older eggs that used HOSTNAME.
+# Avoid using Docker's auto-generated container hostname (typically a hex ID).
+if [ -z "${SERVER_NAME}" ] && [ -n "${HOSTNAME:-}" ] && ! [[ "${HOSTNAME}" =~ ^[0-9a-f]{12,64}$ ]]; then
+    SERVER_NAME="${HOSTNAME}"
+fi
+
 seed_runtime_files() {
     mkdir -p "${CONTAINER_HOME}" "${WINEPREFIX}" "${SBOX_INSTALL_DIR}" "${CONTAINER_HOME}/logs" "${CONTAINER_HOME}/data"
 
