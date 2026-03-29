@@ -13,8 +13,12 @@ SBOX_AUTO_UPDATE="${SBOX_AUTO_UPDATE:-1}"
 SBOX_BRANCH="${SBOX_BRANCH:-}"
 STEAM_PLATFORM="${STEAM_PLATFORM:-windows}"
 RESET_WINEPREFIX_ON_ARCH_MISMATCH="${RESET_WINEPREFIX_ON_ARCH_MISMATCH:-1}"
+INSTALL_WINETRICKS_DOTNET="${INSTALL_WINETRICKS_DOTNET:-1}"
+WINETRICKS_VERBS="${WINETRICKS_VERBS:-dotnet48 dotnet10}"
+WINETRICKS_STRICT="${WINETRICKS_STRICT:-0}"
 INSTALL_WIN_DOTNET="${INSTALL_WIN_DOTNET:-1}"
 WIN_DOTNET_VERSION="${WIN_DOTNET_VERSION:-10.0.2}"
+WIN_DOTNET_INSTALL_METHOD="${WIN_DOTNET_INSTALL_METHOD:-installer}"
 GAME="${GAME:-}"
 MAP="${MAP:-}"
 SERVER_NAME="${HOSTNAME:-}"
@@ -214,8 +218,11 @@ ensure_windows_dotnet_runtime() {
     local hostfxr_path=""
     local nested_root=""
     local runtime_zip="${CONTAINER_HOME}/.cache/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.zip"
+    local runtime_installer="${CONTAINER_HOME}/.cache/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.exe"
     local url_primary="https://dotnetcli.azureedge.net/dotnet/Runtime/${WIN_DOTNET_VERSION}/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.zip"
     local url_fallback="https://builds.dotnet.microsoft.com/dotnet/Runtime/${WIN_DOTNET_VERSION}/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.zip"
+    local installer_url_primary="https://dotnetcli.azureedge.net/dotnet/Runtime/${WIN_DOTNET_VERSION}/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.exe"
+    local installer_url_fallback="https://builds.dotnet.microsoft.com/dotnet/Runtime/${WIN_DOTNET_VERSION}/dotnet-runtime-${WIN_DOTNET_VERSION}-win-x64.exe"
 
     hostfxr_path="$(find "${win_dotnet_dir}" -type f -name hostfxr.dll 2>/dev/null | head -n 1 || true)"
     if [ -n "${hostfxr_path}" ]; then
@@ -223,6 +230,40 @@ ensure_windows_dotnet_runtime() {
     fi
 
     mkdir -p "${CONTAINER_HOME}/.cache" "${win_dotnet_dir}"
+
+    if [ "${WIN_DOTNET_INSTALL_METHOD}" = "installer" ]; then
+        if [ ! -s "${runtime_installer}" ]; then
+            echo "info: downloading Windows .NET runtime installer ${WIN_DOTNET_VERSION}" >&2
+            if ! wget -qO "${runtime_installer}" "${installer_url_primary}"; then
+                if ! wget -qO "${runtime_installer}" "${installer_url_fallback}"; then
+                    echo "warn: installer download failed, falling back to zip install" >&2
+                    WIN_DOTNET_INSTALL_METHOD="zip"
+                fi
+            fi
+        fi
+
+        if [ "${WIN_DOTNET_INSTALL_METHOD}" = "installer" ]; then
+            echo "info: installing Windows .NET runtime ${WIN_DOTNET_VERSION} via installer" >&2
+            if command -v xvfb-run >/dev/null 2>&1; then
+                xvfb-run -a wine "${runtime_installer}" /install /quiet /norestart >/tmp/dotnet-installer.log 2>&1 || true
+            else
+                wine "${runtime_installer}" /install /quiet /norestart >/tmp/dotnet-installer.log 2>&1 || true
+            fi
+
+            hostfxr_path="$(find "${win_dotnet_dir}" -type f -name hostfxr.dll 2>/dev/null | head -n 1 || true)"
+            if [ -n "${hostfxr_path}" ]; then
+                echo "info: detected hostfxr at ${hostfxr_path}" >&2
+                return 0
+            fi
+
+            echo "warn: installer path did not produce hostfxr, falling back to zip install" >&2
+            WIN_DOTNET_INSTALL_METHOD="zip"
+        fi
+    fi
+
+    if [ "${WIN_DOTNET_INSTALL_METHOD}" != "zip" ]; then
+        WIN_DOTNET_INSTALL_METHOD="zip"
+    fi
 
     if [ ! -s "${runtime_zip}" ]; then
         echo "info: downloading Windows .NET runtime ${WIN_DOTNET_VERSION}" >&2
@@ -256,6 +297,69 @@ ensure_windows_dotnet_runtime() {
     echo "info: detected hostfxr at ${hostfxr_path}" >&2
 }
 
+ensure_winetricks_dotnet() {
+    local marker
+    local winetricks_bin
+    local verb
+    local list_all
+
+    if [ "${INSTALL_WINETRICKS_DOTNET}" != "1" ]; then
+        return 0
+    fi
+
+    marker="${WINEPREFIX}/.winetricks-dotnet.done"
+    if [ -f "${marker}" ]; then
+        return 0
+    fi
+
+    if [ -x "/usr/local/bin/winetricks" ]; then
+        winetricks_bin="/usr/local/bin/winetricks"
+    elif command -v winetricks >/dev/null 2>&1; then
+        winetricks_bin="$(command -v winetricks)"
+    else
+        echo "fatal: winetricks not found" >&2
+        return 1
+    fi
+
+    list_all="$(bash "${winetricks_bin}" list-all 2>/dev/null || true)"
+
+    for verb in ${WINETRICKS_VERBS}; do
+        if [ -z "${verb}" ]; then
+            continue
+        fi
+
+        if ! printf '%s\n' "${list_all}" | awk '{print $1}' | grep -qx "${verb}"; then
+            if [ "${WINETRICKS_STRICT}" = "1" ]; then
+                echo "fatal: winetricks verb ${verb} not available in current winetricks build" >&2
+                return 1
+            fi
+            echo "warn: winetricks verb ${verb} not available; skipping" >&2
+            continue
+        fi
+
+        echo "info: running winetricks verb ${verb}" >&2
+        if command -v xvfb-run >/dev/null 2>&1; then
+            xvfb-run -a env WINEPREFIX="${WINEPREFIX}" HOME="${CONTAINER_HOME}" bash "${winetricks_bin}" -q "${verb}" >/tmp/winetricks-${verb}.log 2>&1 || {
+                if [ "${WINETRICKS_STRICT}" = "1" ]; then
+                    echo "fatal: winetricks failed for ${verb}; see /tmp/winetricks-${verb}.log" >&2
+                    return 1
+                fi
+                echo "warn: winetricks failed for ${verb}; continuing (WINETRICKS_STRICT=0)" >&2
+            }
+        else
+            env WINEPREFIX="${WINEPREFIX}" HOME="${CONTAINER_HOME}" bash "${winetricks_bin}" -q "${verb}" >/tmp/winetricks-${verb}.log 2>&1 || {
+                if [ "${WINETRICKS_STRICT}" = "1" ]; then
+                    echo "fatal: winetricks failed for ${verb}; see /tmp/winetricks-${verb}.log" >&2
+                    return 1
+                fi
+                echo "warn: winetricks failed for ${verb}; continuing (WINETRICKS_STRICT=0)" >&2
+            }
+        fi
+    done
+
+    touch "${marker}"
+}
+
 if [ ! -f "${WINEPREFIX}/system.reg" ]; then
     if mkdir "${LOCK_DIR}" 2>/dev/null; then
         if [ ! -f "${WINEPREFIX}/system.reg" ]; then
@@ -283,6 +387,8 @@ fi
 if [ "${INSTALL_WIN_DOTNET}" = "1" ]; then
     ensure_windows_dotnet_runtime
 fi
+
+ensure_winetricks_dotnet
 
 if [ "$#" -eq 0 ] || [ "${1:-}" = "start-sbox" ]; then
     if [ "${1:-}" = "start-sbox" ]; then

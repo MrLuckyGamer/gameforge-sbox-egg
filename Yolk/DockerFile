@@ -28,6 +28,12 @@ ENV CONTAINER_HOME=/home/container \
         SBOX_AUTO_UPDATE=1 \
         SBOX_BRANCH= \
         STEAM_PLATFORM=windows \
+        INSTALL_WINETRICKS_DOTNET=1 \
+        WINETRICKS_VERBS=dotnet48\ dotnet10 \
+        WINETRICKS_STRICT=0 \
+        INSTALL_WIN_DOTNET=1 \
+        WIN_DOTNET_VERSION=10.0.2 \
+        WIN_DOTNET_INSTALL_METHOD=installer \
         GAME= \
         MAP= \
         HOSTNAME= \
@@ -71,9 +77,13 @@ RUN dpkg --add-architecture i386 \
            wine32 \
            wine64 \
            winbind \
+                   winetricks \
                           xauth \
            xvfb \
         && rm -rf /var/lib/apt/lists/*
+
+RUN wget -qO /usr/local/bin/winetricks https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
+        && chmod 0755 /usr/local/bin/winetricks
 
 RUN mkdir -p /opt/steamcmd \
         && wget -qO /tmp/steamcmd_linux.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
