@@ -9,7 +9,7 @@
 #
 # Build from the repo root:
 #   docker build --platform linux/amd64 \
-#     -f PteroSbox/DockerFile \
+#     -f Yolk/DockerFile \
 #     -t hyberhost/gameforge-sbox-egg:latest \
 #     [--build-arg BAKE_WIN_DOTNET_VERSION=10.0.2] \
 #     .
@@ -198,7 +198,7 @@ RUN if ! getent group "${PGID}" >/dev/null 2>&1; then groupadd --gid "${PGID}" c
 # entrypoint will copy this to /home/container/.wine on the first start.
 COPY --from=builder --chown=${PUID}:${PGID} /work/wineprefix /opt/sbox-wine-prefix
 
-COPY --chown=999:999 PteroSbox/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=999:999 Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 WORKDIR /home/container
