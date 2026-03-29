@@ -70,7 +70,7 @@ RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: Runtime
 # ─────────────────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 LABEL author="Steven A. Smith" maintainer="steven.smith@hyberhost.com"
 LABEL description="S&Box Pterodactyl Egg (dxura-adapted)" version="2.0" license="MIT"

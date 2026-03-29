@@ -258,6 +258,7 @@ run_sbox() {
     local -a args
     local -a extra
     local log_file="${1:-}"
+    local -a launch_env
 
     if ! resolve_server_exe; then
         echo "fatal: no Windows S&Box server executable found under ${SBOX_INSTALL_DIR}. Verify STEAM_PLATFORM=windows and app/depot content." >&2
@@ -320,22 +321,23 @@ run_sbox() {
         echo "=== OUTPUT START ==="
     } >> "${log_file}"
 
+    # Route all subsequent stdout/stderr to both console and the timestamped log.
+    exec > >(tee -a "${log_file}") 2>&1
+
+    launch_env=(
+        DOTNET_ROOT="${WIN_DOTNET_ROOT}"
+        DOTNET_ROOT_X64="${WIN_DOTNET_ROOT}"
+        DOTNET_MULTILEVEL_LOOKUP="${DOTNET_MULTILEVEL_LOOKUP}"
+        WINEDEBUG=-all
+        WINE_CPU_TOPOLOGY=2:2
+        WINEESYNC=0
+        WINEFSYNC=0
+    )
+
     if command -v xvfb-run >/dev/null 2>&1; then
-        exec env \
-            DOTNET_ROOT="${WIN_DOTNET_ROOT}" \
-            DOTNET_ROOT_X64="${WIN_DOTNET_ROOT}" \
-            DOTNET_MULTILEVEL_LOOKUP="${DOTNET_MULTILEVEL_LOOKUP}" \
-            WINEDEBUG=-all \
-            WINE_CPU_TOPOLOGY=2:2 \
-            xvfb-run -a wine "${SBOX_SERVER_EXE}" "${args[@]}" 2>&1 | tee -a "${log_file}"
+        exec env "${launch_env[@]}" xvfb-run -a wine "${SBOX_SERVER_EXE}" "${args[@]}"
     fi
-    exec env \
-        DOTNET_ROOT="${WIN_DOTNET_ROOT}" \
-        DOTNET_ROOT_X64="${WIN_DOTNET_ROOT}" \
-        DOTNET_MULTILEVEL_LOOKUP="${DOTNET_MULTILEVEL_LOOKUP}" \
-        WINEDEBUG=-all \
-        WINE_CPU_TOPOLOGY=2:2 \
-        wine "${SBOX_SERVER_EXE}" "${args[@]}" 2>&1 | tee -a "${log_file}"
+    exec env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}"
 }
 
 ensure_windows_dotnet_runtime() {
