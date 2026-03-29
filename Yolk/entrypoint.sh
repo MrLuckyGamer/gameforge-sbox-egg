@@ -28,7 +28,7 @@ if [ -z "${SERVER_NAME}" ] && [ -n "${HOSTNAME:-}" ] && ! [[ "${HOSTNAME}" =~ ^[
 fi
 
 seed_runtime_files() {
-    mkdir -p "${CONTAINER_HOME}" "${WINEPREFIX}" "${SBOX_INSTALL_DIR}" "${CONTAINER_HOME}/logs" "${CONTAINER_HOME}/data"
+    mkdir -p "${CONTAINER_HOME}" "${WINEPREFIX}" "${SBOX_INSTALL_DIR}" "${CONTAINER_HOME}/logs" "${CONTAINER_HOME}/data" "${CONTAINER_HOME}/.steamcmd"
 
     if [ ! -f "${WINEPREFIX}/system.reg" ] && [ -d "${BAKED_WINEPREFIX}/drive_c" ]; then
         echo "info: seeding Wine prefix from ${BAKED_WINEPREFIX}" >&2
@@ -39,6 +39,14 @@ seed_runtime_files() {
         echo "info: seeding S&Box files from ${BAKED_SERVER_TEMPLATE}" >&2
         cp -a "${BAKED_SERVER_TEMPLATE}/." "${SBOX_INSTALL_DIR}/"
     fi
+
+    if [ ! -r "${CONTAINER_HOME}/.steamcmd/steamcmd.sh" ] && [ -d "${BAKED_STEAMCMD_TEMPLATE}" ]; then
+        echo "info: seeding SteamCMD from ${BAKED_STEAMCMD_TEMPLATE}" >&2
+        cp -a "${BAKED_STEAMCMD_TEMPLATE}/." "${CONTAINER_HOME}/.steamcmd/"
+    fi
+
+    chmod +x "${CONTAINER_HOME}/.steamcmd/steamcmd.sh" 2>/dev/null || true
+    chmod +x "${CONTAINER_HOME}/.steamcmd/linux32/steamcmd" 2>/dev/null || true
 }
 
 update_sbox() {
@@ -56,6 +64,12 @@ update_sbox() {
         rm -f "${bootstrap_tar}"
         chmod 0755 "${steamcmd_home}/steamcmd.sh" || true
         steamcmd_bin="${steamcmd_home}/steamcmd.sh"
+    fi
+
+    if ! bash "${steamcmd_bin}" +quit >/dev/null 2>&1; then
+        echo "warn: SteamCMD is not executable in this runtime (linux32 binary missing/incompatible); skipping auto-update" >&2
+        echo "warn: set SBOX_AUTO_UPDATE=0 (recommended) or use a glibc-compatible image for SteamCMD updates" >&2
+        return 0
     fi
 
     steam_args=(
