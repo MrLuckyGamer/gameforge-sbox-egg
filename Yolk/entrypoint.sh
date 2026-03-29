@@ -68,6 +68,7 @@ update_sbox() {
 run_sbox() {
     local -a args
     local -a extra
+    local -a launch_env
 
     if [ -n "${SBOX_PROJECT}" ]; then
         args+=( "${SBOX_PROJECT}" )
@@ -92,8 +93,16 @@ run_sbox() {
     fi
 
     unset DOTNET_ROOT DOTNET_ROOT_X86 DOTNET_ROOT_X64
+
+    launch_env=(
+        DOTNET_EnableWriteXorExecute=0
+        COMPlus_TieredCompilation=0
+        COMPlus_ReadyToRun=0
+        COMPlus_ZapDisable=1
+    )
+
     cd "${SBOX_INSTALL_DIR}"
-    exec wine "${SBOX_SERVER_EXE}" "${args[@]}"
+    exec env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}"
 }
 
 if [ "${1:-}" = "start-sbox" ]; then
