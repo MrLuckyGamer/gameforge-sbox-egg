@@ -5,7 +5,6 @@ CONTAINER_HOME="${CONTAINER_HOME:-/home/container}"
 WINEPREFIX="${WINEPREFIX:-/home/container/.wine}"
 BAKED_WINEPREFIX="${SBOX_BAKED_WINEPREFIX:-/opt/sbox-wine-prefix}"
 BAKED_SERVER_TEMPLATE="${SBOX_BAKED_SERVER_TEMPLATE:-/opt/sbox-server-template}"
-BAKED_STEAMCMD_TEMPLATE="${SBOX_BAKED_STEAMCMD_TEMPLATE:-/opt/sbox-steamcmd-template}"
 
 SBOX_INSTALL_DIR="${SBOX_INSTALL_DIR:-/home/container/sbox}"
 SBOX_SERVER_EXE="${SBOX_SERVER_EXE:-${SBOX_INSTALL_DIR}/sbox-server.exe}"
@@ -54,10 +53,6 @@ seed_runtime_files() {
         echo "warn: ${SBOX_INSTALL_DIR} is missing/empty but prebaked template was not found at ${BAKED_SERVER_TEMPLATE}" >&2
     fi
 
-    if ! steamcmd_installed && [ -d "${BAKED_STEAMCMD_TEMPLATE}" ]; then
-        echo "info: seeding SteamCMD runtime from ${BAKED_STEAMCMD_TEMPLATE}" >&2
-        cp -r "${BAKED_STEAMCMD_TEMPLATE}/." "${STEAMCMD_DIR}/"
-    fi
 }
 
 steamcmd_installed() {

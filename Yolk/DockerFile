@@ -88,8 +88,8 @@ RUN mkdir -p /work/steamcmd /work/server \
                 echo "warn: build-time app download failed for app ${BAKE_SBOX_APP_ID}; runtime update will be used" >&2; \
                 mkdir -p /work/server; \
             fi; \
-        fi \
-     && rm -rf /work/steamcmd
+          fi \
+      && rm -rf /work/steamcmd
 
 # Verify the .NET host was installed (warn only, don't fail build).
 RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .; then \
@@ -119,6 +119,7 @@ ENV CONTAINER_HOME=/home/container \
     WINEDEBUG=-all \
     WINEDLLOVERRIDES=icu,icuuc=d \
     SBOX_BAKED_WINEPREFIX=/opt/sbox-wine-prefix \
+    SBOX_BAKED_SERVER_TEMPLATE=/opt/sbox-server-template \
     SBOX_APP_ID=1892930 \
     SBOX_INSTALL_DIR=/home/container/sbox \
     SBOX_SERVER_EXE=/home/container/sbox/sbox-server.exe \
@@ -157,11 +158,12 @@ RUN mkdir -p \
      && chmod 1777 /tmp
 
 COPY --from=builder /work/wineprefix /opt/sbox-wine-prefix
+COPY --from=builder /work/server /opt/sbox-server-template
 COPY --from=builder /lib/ld-linux.so.2 /opt/steam-compat/lib/ld-linux.so.2
 COPY --from=builder /lib/i386-linux-gnu /opt/steam-compat/lib/i386-linux-gnu
 COPY --from=builder /usr/lib/i386-linux-gnu /opt/steam-compat/usr/lib/i386-linux-gnu
 
-RUN chmod -R u+rwX,g+rX,o+rX /opt/sbox-wine-prefix /opt/steam-compat
+RUN chmod -R u+rwX,g+rX,o+rX /opt/sbox-wine-prefix /opt/sbox-server-template /opt/steam-compat
 
 COPY Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
