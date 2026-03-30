@@ -10,8 +10,7 @@
     "description": "S&Box dedicated server with build-time baked Wine prefix and Windows .NET runtime for stable Pterodactyl startup.",
     "features": [],
     "docker_images": {
-        "ghcr.io\/hyberhost\/gameforge-sbox-egg:latest": "ghcr.io\/hyberhost\/gameforge-sbox-egg:latest",
-        "ghcr.io\/hyberhost\/gameforge-sbox-egg:main": "ghcr.io\/hyberhost\/gameforge-sbox-egg:latest"
+        "ghcr.io\/hyberhost\/gameforge-sbox-egg:latest": "ghcr.io\/hyberhost\/gameforge-sbox-egg:latest"
     },
     "file_denylist": [],
     "startup": "start-sbox",
@@ -43,7 +42,7 @@
             "name": "Server Name",
             "description": "Server display name (shown in browser)",
             "env_variable": "SERVER_NAME",
-            "default_value": "GameForgeTest",
+            "default_value": "GameForge Sandbox Server",
             "user_viewable": true,
             "user_editable": true,
             "rules": "required|string|max:128",
@@ -114,49 +113,9 @@
             "description": "Windows .NET runtime version to install (e.g., 10.0.0, 8.0.0)",
             "env_variable": "WIN_DOTNET_VERSION",
             "default_value": "10.0.0",
-            "user_viewable": true,
-            "user_editable": true,
+            "user_viewable": false,
+            "user_editable": false,
             "rules": "required|string|max:32",
-            "field_type": "text"
-        },
-        {
-            "name": "Wine Debug Level",
-            "description": "Wine debug output level (all,-all,warn,err,fixme,trace)",
-            "env_variable": "WINEDEBUG",
-            "default_value": "-all",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "required|string|max:64",
-            "field_type": "text"
-        },
-        {
-            "name": "Log Rotation Keep",
-            "description": "Number of old S&Box logs to keep (0 = unlimited)",
-            "env_variable": "SBOX_LOG_KEEP",
-            "default_value": "10",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "required|numeric|min:0|max:100",
-            "field_type": "text"
-        },
-        {
-            "name": ".NET JIT Tier Compilation",
-            "description": "Enable tiered compilation for .NET performance (0=off, 1=on)",
-            "env_variable": "DOTNET_TieredCompilation",
-            "default_value": "0",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "required|in:0,1",
-            "field_type": "text"
-        },
-        {
-            "name": ".NET ReadyToRun",
-            "description": "Enable .NET ReadyToRun compilation (0=disabled for consistency)",
-            "env_variable": "DOTNET_ReadyToRun",
-            "default_value": "0",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "required|in:0,1",
             "field_type": "text"
         }
     ]

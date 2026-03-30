@@ -22,6 +22,7 @@ FROM debian:trixie-slim AS builder
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BAKE_WINETRICKS_VERBS="win10 vcrun2022"
 ARG BAKE_WIN_DOTNET_VERSION=10.0.0
+ARG BAKE_SBOX_APP_ID=1892930
 
 # Enable i386 and contrib/non-free (matches dxura reference)
 RUN dpkg --add-architecture i386 \
@@ -64,20 +65,35 @@ RUN mkdir -p /work && cd /work && \
 
 # Bake S&Box server content at build-time (dxura pattern) so first run does
 # not depend on runtime Steam download behavior.
+# Some regions/runs return "Missing configuration" for forced platform calls;
+# retry and fallback to native platform without failing the whole image build.
 RUN mkdir -p /work/steamcmd /work/server \
      && wget -qO /work/steamcmd/steamcmd_linux.tar.gz \
          https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz \
      && tar -xzf /work/steamcmd/steamcmd_linux.tar.gz -C /work/steamcmd \
      && chmod 0755 /work/steamcmd/steamcmd.sh \
-     && bash /work/steamcmd/steamcmd.sh \
-         +@sSteamCmdForcePlatformType windows \
-         +force_install_dir /work/server \
-         +login anonymous \
-         +app_update 1892930 validate \
-         +quit \
-     && rm /work/steamcmd/steamcmd_linux.tar.gz
-# Note: We intentionally keep /work/steamcmd (only the tarball is removed)
-# so it can be reused/copied later as a SteamCMD template directory.
+     && rm /work/steamcmd/steamcmd_linux.tar.gz \
+     && if ! bash /work/steamcmd/steamcmd.sh \
+            +@ShutdownOnFailedCommand 1 \
+            +@NoPromptForPassword 1 \
+            +@sSteamCmdForcePlatformType windows \
+            +force_install_dir /work/server \
+            +login anonymous \
+            +app_update ${BAKE_SBOX_APP_ID} validate \
+            +quit; then \
+            echo "warn: forced windows download failed; retrying without platform override" >&2; \
+            if ! bash /work/steamcmd/steamcmd.sh \
+                +@ShutdownOnFailedCommand 1 \
+                +@NoPromptForPassword 1 \
+                +force_install_dir /work/server \
+                +login anonymous \
+                +app_update ${BAKE_SBOX_APP_ID} validate \
+                +quit; then \
+                echo "warn: build-time app download failed for app ${BAKE_SBOX_APP_ID}; runtime update will be used" >&2; \
+                mkdir -p /work/server; \
+            fi; \
+        fi \
+     && rm -rf /work/steamcmd
 
 # Verify the .NET host was installed (warn only, don't fail build).
 RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .; then \
@@ -109,12 +125,11 @@ ENV CONTAINER_HOME=/home/container \
     # Pterodactyl /home/container volume mount).  Entrypoint copies this to
     # WINEPREFIX on first start if .wine is absent.
     SBOX_BAKED_WINEPREFIX=/opt/sbox-wine-prefix \
-    SBOX_BAKED_STEAMCMD_TEMPLATE=/opt/sbox-steamcmd-template \
     SBOX_BAKED_SERVER_TEMPLATE=/opt/sbox-server-template \
     SBOX_APP_ID=1892930 \
     SBOX_INSTALL_DIR=/home/container/sbox \
     SBOX_SERVER_EXE=/home/container/sbox/sbox-server.exe \
-    SBOX_AUTO_UPDATE=0 \
+    SBOX_AUTO_UPDATE=1 \
     SBOX_BRANCH= \
     SBOX_LOG_KEEP=10 \
     STEAM_PLATFORM=windows \
@@ -134,8 +149,7 @@ ENV CONTAINER_HOME=/home/container \
     DOTNET_ZapDisable=1 \
     GAME= \
     MAP= \
-    HOSTNAME= \
-    TOKEN= \
+    SERVER_NAME= \
     SBOX_PROJECT= \
     SBOX_EXTRA_ARGS= \
     STEAMCMD_BIN= \
@@ -145,6 +159,8 @@ RUN apk add --no-cache \
          bash \
          ca-certificates \
          gnutls \
+         libgcc \
+         libstdc++ \
          tar \
          wget \
          wine
@@ -162,13 +178,15 @@ RUN mkdir -p \
 # entrypoint will copy this to /home/container/.wine on the first start.
 COPY --from=builder /work/wineprefix /opt/sbox-wine-prefix
 COPY --from=builder /work/server /opt/sbox-server-template
-COPY --from=builder /work/steamcmd /opt/sbox-steamcmd-template
+
+# Compatibility runtime for SteamCMD linux32 binary on Alpine/musl.
+COPY --from=builder /lib/ld-linux.so.2 /opt/steam-compat/lib/ld-linux.so.2
+COPY --from=builder /lib/i386-linux-gnu /opt/steam-compat/lib/i386-linux-gnu
+COPY --from=builder /usr/lib/i386-linux-gnu /opt/steam-compat/usr/lib/i386-linux-gnu
 
 # Fix permissions on copied templates so non-root user can access them.
 # Pterodactyl typically runs containers as uid 999, so ensure these are readable.
-RUN chmod -R u+rwX,g+rX,o+rX /opt/sbox-wine-prefix /opt/sbox-server-template /opt/sbox-steamcmd-template && \
-    find /opt/sbox-steamcmd-template -type f -name '*.sh' -exec chmod +x {} \; && \
-    chmod +x /opt/sbox-steamcmd-template/steamcmd.sh || true
+RUN chmod -R u+rwX,g+rX,o+rX /opt/sbox-wine-prefix /opt/sbox-server-template
 
 # Pre-initialize the Wine prefix as root so permissions are set correctly
 # This avoids issues when Pterodactyl non-root user tries to copy later.
