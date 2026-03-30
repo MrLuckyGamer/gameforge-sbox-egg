@@ -165,10 +165,6 @@ RUN apk add --no-cache \
          wget \
          wine
 
-# Install an Alpine-native SteamCMD when available. If unavailable on a mirror,
-# keep going and rely on the bundled SteamCMD + glibc compatibility fallback.
-RUN apk add --no-cache steamcmd || { echo "Alpine-native steamcmd package not installed; falling back to bundled SteamCMD + glibc compatibility layer."; :; }
-
 RUN mkdir -p \
          /home/container/.wine \
          /home/container/data \

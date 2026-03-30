@@ -45,7 +45,7 @@ seed_runtime_files() {
 
 update_sbox() {
     local steamcmd_home="${CONTAINER_HOME}/.steamcmd"
-    local steamcmd_bin="${STEAMCMD_BIN:-}"
+    local steamcmd_bin="${STEAMCMD_BIN:-${steamcmd_home}/steamcmd.sh}"
     local bootstrap_tar="${steamcmd_home}/steamcmd_linux.tar.gz"
     local steamcmd_linux32="${steamcmd_home}/linux32/steamcmd"
     local compat_loader="/opt/steam-compat/lib/ld-linux.so.2"
@@ -58,19 +58,15 @@ update_sbox() {
 
     mkdir -p "${steamcmd_home}" "${SBOX_INSTALL_DIR}"
 
-    # Prefer native Alpine steamcmd when available; bundled linux32 steamcmd
-    # often fails in musl runtimes unless glibc compatibility is in use.
-    if [ -z "${steamcmd_bin}" ]; then
-        if [ -x "/usr/bin/steamcmd" ]; then
-            steamcmd_bin="/usr/bin/steamcmd"
-        elif [ -x "/usr/games/steamcmd" ]; then
-            steamcmd_bin="/usr/games/steamcmd"
-        else
+    # Keep runtime SteamCMD path inside Pterodactyl space by default.
+    # Users can override with STEAMCMD_BIN if they explicitly want another path.
+
+    if [ ! -r "${steamcmd_bin}" ]; then
+        if [ "${steamcmd_bin}" != "${bundled_steamcmd}" ]; then
+            echo "warn: configured STEAMCMD_BIN '${steamcmd_bin}' not found; falling back to ${bundled_steamcmd}" >&2
             steamcmd_bin="${bundled_steamcmd}"
         fi
-    fi
 
-    if [ ! -r "${steamcmd_bin}" ] && [ "${steamcmd_bin}" = "${bundled_steamcmd}" ]; then
         wget -qO "${bootstrap_tar}" https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
         tar -xzf "${bootstrap_tar}" -C "${steamcmd_home}"
         rm -f "${bootstrap_tar}"
