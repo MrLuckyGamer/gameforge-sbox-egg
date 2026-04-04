@@ -66,18 +66,72 @@ seed_runtime_files() {
 
 }
 
+canonicalize_existing_path() {
+    local input_path="$1"
+    local input_dir=""
+    local input_base=""
+
+    if [ -z "${input_path}" ] || [ ! -e "${input_path}" ]; then
+        return 1
+    fi
+
+    input_dir="$(dirname "${input_path}")"
+    input_base="$(basename "${input_path}")"
+
+    (
+        cd "${input_dir}" 2>/dev/null || exit 1
+        printf '%s/%s' "$(pwd -P)" "${input_base}"
+    )
+}
+
+path_is_within_root() {
+    local candidate_path="$1"
+    local root_path="$2"
+
+    case "${candidate_path}" in
+        "${root_path}"|"${root_path}"/*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 resolve_project_target() {
     local project_target=""
+    local projects_root=""
+    local candidate=""
+    local resolved_candidate=""
 
-    if [ -n "${SBOX_PROJECT}" ]; then
-        if [[ "${SBOX_PROJECT}" = /* ]]; then
-            project_target="${SBOX_PROJECT}"
-        elif [ -f "${SBOX_PROJECTS_DIR}/${SBOX_PROJECT}" ]; then
-            project_target="${SBOX_PROJECTS_DIR}/${SBOX_PROJECT}"
-        elif [ -f "${SBOX_PROJECTS_DIR}/${SBOX_PROJECT}.sbproj" ]; then
-            project_target="${SBOX_PROJECTS_DIR}/${SBOX_PROJECT}.sbproj"
-        else
-            project_target="${SBOX_PROJECT}"
+    if [ -z "${SBOX_PROJECT}" ]; then
+        printf '%s' ""
+        return 0
+    fi
+
+    projects_root="$(canonicalize_existing_path "${SBOX_PROJECTS_DIR}" || true)"
+    if [ -z "${projects_root}" ]; then
+        printf '%s' ""
+        return 0
+    fi
+
+    if [[ "${SBOX_PROJECT}" = /* ]]; then
+        candidate="${SBOX_PROJECT}"
+    else
+        candidate="${SBOX_PROJECTS_DIR}/${SBOX_PROJECT}"
+    fi
+
+    if [ -f "${candidate}" ]; then
+        resolved_candidate="$(canonicalize_existing_path "${candidate}" || true)"
+        if [ -n "${resolved_candidate}" ] && [[ "${resolved_candidate}" = *.sbproj ]] && path_is_within_root "${resolved_candidate}" "${projects_root}"; then
+            project_target="${resolved_candidate}"
+        fi
+    fi
+
+    if [ -z "${project_target}" ] && [[ "${candidate}" != *.sbproj ]] && [ -f "${candidate}.sbproj" ]; then
+        resolved_candidate="$(canonicalize_existing_path "${candidate}.sbproj" || true)"
+        if [ -n "${resolved_candidate}" ] && path_is_within_root "${resolved_candidate}" "${projects_root}"; then
+            project_target="${resolved_candidate}"
         fi
     fi
 
@@ -87,6 +141,7 @@ resolve_project_target() {
 ensure_project_libraries_dir() {
     local project_target="$1"
     local project_path=""
+    local projects_root=""
     local project_dir=""
     local libraries_dir=""
 
@@ -100,12 +155,24 @@ ensure_project_libraries_dir() {
         project_path="${SBOX_PROJECTS_DIR}/${project_target}"
     fi
 
-    if [[ "${project_path}" = *.sbproj ]]; then
-        project_dir="$(dirname "${project_path}")"
-    elif [[ "${project_path}" = */* ]]; then
-        project_dir="$(dirname "${project_path}")"
-    else
-        return 0
+    if [ ! -f "${project_path}" ]; then
+        return 1
+    fi
+
+    projects_root="$(canonicalize_existing_path "${SBOX_PROJECTS_DIR}" || true)"
+    project_path="$(canonicalize_existing_path "${project_path}" || true)"
+
+    if [ -z "${projects_root}" ] || [ -z "${project_path}" ]; then
+        return 1
+    fi
+
+    if [[ "${project_path}" != *.sbproj ]] || ! path_is_within_root "${project_path}" "${projects_root}"; then
+        return 1
+    fi
+
+    project_dir="$(dirname "${project_path}")"
+    if ! path_is_within_root "${project_dir}" "${projects_root}"; then
+        return 1
     fi
 
     libraries_dir="${project_dir}/Libraries"
@@ -243,6 +310,9 @@ run_sbox() {
         if [ -n "${MAP}" ]; then
             args+=( "${MAP}" )
         fi
+    else
+        echo "error: missing startup target; set a project target (SBOX_PROJECT) or provide GAME and MAP (current: GAME='${GAME:-}', MAP='${MAP:-}')." >&2
+        exit 1
     fi
 
     if [ -n "${SERVER_NAME}" ]; then
