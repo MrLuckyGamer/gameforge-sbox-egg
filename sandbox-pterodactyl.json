@@ -79,7 +79,7 @@
         },
         {
             "name": "Auto Update",
-            "description": "Automatic Server Updates. This is currently not working in runtime so image rebuild is currently required.",
+            "description": "Automatic server updates. Currently not working at runtime; image rebuild is required.",
             "env_variable": "SBOX_AUTO_UPDATE",
             "default_value": "1",
             "user_viewable": true,
