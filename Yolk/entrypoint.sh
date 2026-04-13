@@ -14,7 +14,7 @@ SBOX_APP_ID="${SBOX_APP_ID:-1892930}"
 SBOX_AUTO_UPDATE="${SBOX_AUTO_UPDATE:-1}"
 SBOX_BRANCH="${SBOX_BRANCH:-}"
 STEAM_PLATFORM="${STEAM_PLATFORM:-windows}"
-STEAMCMD_DIR="${STEAMCMD_DIR:-${CONTAINER_HOME}/steamcmd}"
+STEAMCMD_DIR="${STEAMCMD_DIR:-${CONTAINER_HOME}/.steamcmd}"
 
 # Optional server configuration variables
 GAME="${GAME:-}"
@@ -40,6 +40,10 @@ LOG_DIR="${CONTAINER_HOME}/logs"
 LOG_FILE="${LOG_DIR}/sbox-server.log"
 ERROR_LOG="${LOG_DIR}/sbox-error.log"
 UPDATE_LOG="${LOG_DIR}/sbox-update.log"
+
+is_alpine_runtime() {
+    [ -f /etc/alpine-release ]
+}
 
 # ============================================================================
 # LOGGING FUNCTIONS
@@ -238,8 +242,8 @@ resolve_steamcmd_binary() {
     for candidate in \
         "/usr/bin/steamcmd" \
         "/usr/games/steamcmd" \
-        "${STEAMCMD_DIR}/steamcmd.sh" \
         "${STEAMCMD_DIR}/linux32/steamcmd" \
+        "${STEAMCMD_DIR}/steamcmd.sh" \
         "${CONTAINER_HOME}/Steam/linux32/steamcmd"
     do
         if [ -f "${candidate}" ]; then
@@ -283,6 +287,8 @@ run_steamcmd() {
     local steamcmd_root=""
     local steamcmd_base=""
 
+    mkdir -p "${CONTAINER_HOME}/.steam" "${CONTAINER_HOME}/.local/share"
+
     steamcmd_bin="$(resolve_steamcmd_binary || true)"
 
     if [ -z "${steamcmd_bin}" ]; then
@@ -300,8 +306,19 @@ run_steamcmd() {
     steamcmd_base="$(basename "${steamcmd_bin}")"
 
     # Use native/system wrappers directly when available.
-    if [ "${steamcmd_bin}" = "/usr/bin/steamcmd" ] || [ "${steamcmd_bin}" = "/usr/games/steamcmd" ] || [ "${steamcmd_base}" = "steamcmd.sh" ]; then
+    if [ "${steamcmd_bin}" = "/usr/bin/steamcmd" ] || [ "${steamcmd_bin}" = "/usr/games/steamcmd" ]; then
         HOME="${CONTAINER_HOME}" "${steamcmd_bin}" "${args[@]}"
+        return $?
+    fi
+
+    if [ "${steamcmd_base}" = "steamcmd.sh" ]; then
+        steamcmd_root="$(cd "$(dirname "${steamcmd_bin}")" && pwd)"
+        (
+            cd "${steamcmd_root}"
+            HOME="${CONTAINER_HOME}" \
+            "${steamcmd_bin}" \
+            "${args[@]}"
+        )
         return $?
     fi
 
@@ -339,7 +356,16 @@ run_steamcmd() {
 
 update_sbox() {
     local -a steam_args
+    local -a probe_args
     local force_platform="windows"
+
+    : > "${UPDATE_LOG}"
+
+    probe_args=(
+        +@ShutdownOnFailedCommand 1
+        +@NoPromptForPassword 1
+        +quit
+    )
 
     steam_args=(
         +@ShutdownOnFailedCommand 1
@@ -356,8 +382,14 @@ update_sbox() {
 
     steam_args+=( validate +quit )
 
-    if ! run_steamcmd "${steam_args[@]}"; then
+    if is_alpine_runtime && [ ! -x "/usr/bin/steamcmd" ] && [ ! -x "/usr/games/steamcmd" ]; then
+        log_warn "SteamCMD native package is unavailable on Alpine; runtime update will use bootstrap fallback and may fail on some hosts"
+        log_warn "if update fails, rely on prebaked template content and inspect ${UPDATE_LOG}"
+    fi
+
+    if ! run_steamcmd "${probe_args[@]}" >> "${UPDATE_LOG}" 2>&1; then
         log_warn "SteamCMD runtime probe failed; cannot run auto-update"
+        log_warn "see ${UPDATE_LOG} for details"
         if [ ! -f "${SBOX_SERVER_EXE}" ]; then
             log_error "${SBOX_SERVER_EXE} was not found"
             log_error "run the egg installation script, or enable auto-update after SteamCMD has been installed"
@@ -367,8 +399,9 @@ update_sbox() {
     fi
 
     log_info "running SteamCMD app_update for app ${SBOX_APP_ID} with forced platform '${force_platform}'"
-    if ! run_steamcmd "${steam_args[@]}"; then
+    if ! run_steamcmd "${steam_args[@]}" >> "${UPDATE_LOG}" 2>&1; then
         log_warn "SteamCMD update failed with forced platform '${force_platform}'; refusing Linux fallback to preserve Wine-compatible server files"
+        log_warn "see ${UPDATE_LOG} for details"
         return 1
     fi
 
