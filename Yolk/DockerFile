@@ -90,14 +90,14 @@ RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .
     fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Runtime (match dxura base as closely as possible)
+# Stage 2: Runtime (SteamCMD Alpine base + Wine runtime)
 # ─────────────────────────────────────────────────────────────────────────────
-FROM alpine:edge
+FROM steamcmd/steamcmd:alpine
 
 LABEL author="Steven A. Smith" maintainer="steven.smith@hyberhost.com"
-LABEL description="S&Box Pterodactyl Egg (dxura-adapted)" version="2.0" license="MIT"
+LABEL description="s&box Pterodactyl Egg" version="2.1" license="MIT"
 LABEL org.opencontainers.image.authors="Steven A. Smith" \
-      org.opencontainers.image.description="S&Box Pterodactyl Egg (dxura-adapted)" \
+      org.opencontainers.image.description="s&box Game Server Egg" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/HyberHost/GameForge-sbox-egg"
 
@@ -119,7 +119,6 @@ ENV CONTAINER_HOME=/home/container \
     SBOX_AUTO_UPDATE=1 \
     SBOX_LOG_KEEP=10 \
     STEAM_PLATFORM=windows \
-    STEAMCMD_DIR=/home/container/steamcmd \
     DOTNET_EnableWriteXorExecute=0 \
     DOTNET_TieredCompilation=0 \
     DOTNET_ReadyToRun=0 \
@@ -132,22 +131,22 @@ ENV CONTAINER_HOME=/home/container \
     XDG_RUNTIME_DIR=/tmp
 
 RUN apk add --no-cache \
-         bash \
-         ca-certificates \
-         gnutls \
-         libgcc \
-         libstdc++ \
-         tar \
-         wget \
-         wine
+                bash \
+                ca-certificates \
+                gnutls \
+                libgcc \
+                libstdc++ \
+                tar \
+                wget \
+                wine
 
 RUN mkdir -p \
-         /home/container/.wine \
+        /home/container/.wine \
+        /home/container/.local/share \
          /home/container/projects \
          /home/container/logs \
          /home/container/sbox \
-         /home/container/steamcmd \
-     && chmod 1777 /tmp
+    && chmod 1777 /tmp
 
 COPY --from=builder /work/wineprefix /opt/sbox-wine-prefix
 COPY --from=builder /work/server /opt/sbox-server-template
@@ -155,7 +154,8 @@ COPY --from=builder /work/server /opt/sbox-server-template
 RUN chmod -R u+rwX,g+rX,o+rX /opt/sbox-wine-prefix /opt/sbox-server-template
 
 COPY Yolk/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+    && chmod 0755 /usr/local/bin/entrypoint.sh
 
 WORKDIR ${CONTAINER_HOME}
 

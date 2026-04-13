@@ -1,34 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Pre flight checks and variable defaults
 CONTAINER_HOME="${CONTAINER_HOME:-/home/container}"
 WINEPREFIX="${WINEPREFIX:-/home/container/.wine}"
 BAKED_WINEPREFIX="${SBOX_BAKED_WINEPREFIX:-/opt/sbox-wine-prefix}"
 BAKED_SERVER_TEMPLATE="${SBOX_BAKED_SERVER_TEMPLATE:-/opt/sbox-server-template}"
 
+# S&Box Specific variables with defaults
 SBOX_INSTALL_DIR="${SBOX_INSTALL_DIR:-/home/container/sbox}"
 SBOX_SERVER_EXE="${SBOX_SERVER_EXE:-${SBOX_INSTALL_DIR}/sbox-server.exe}"
 SBOX_APP_ID="${SBOX_APP_ID:-1892930}"
 SBOX_AUTO_UPDATE="${SBOX_AUTO_UPDATE:-1}"
 SBOX_BRANCH="${SBOX_BRANCH:-}"
-STEAM_PLATFORM="${STEAM_PLATFORM:-windows}"
-STEAMCMD_DIR="${STEAMCMD_DIR:-${CONTAINER_HOME}/steamcmd}"
 
+# Optional server configuration variables
 GAME="${GAME:-}"
 MAP="${MAP:-}"
 SERVER_NAME="${SERVER_NAME:-}"
+HOSTNAME_FALLBACK="${HOSTNAME:-}"
+QUERY_PORT="${QUERY_PORT:-}"
+MAX_PLAYERS="${MAX_PLAYERS:-}"
+ENABLE_DIRECT_CONNECT="${ENABLE_DIRECT_CONNECT:-0}"
 TOKEN="${TOKEN:-}"
 SBOX_PROJECT="${SBOX_PROJECT:-}"
 SBOX_PROJECTS_DIR="${SBOX_PROJECTS_DIR:-${CONTAINER_HOME}/projects}"
 SBOX_EXTRA_ARGS="${SBOX_EXTRA_ARGS:-}"
 
-STEAM_COMPAT_LOADER="${STEAMCMD_DIR}/compat/lib/ld-linux.so.2"
-STEAM_COMPAT_LIB_PATH="${STEAMCMD_DIR}/compat/lib/i386-linux-gnu:${STEAMCMD_DIR}/compat/usr/lib/i386-linux-gnu:${STEAMCMD_DIR}/compat/lib"
-SBOX_PREBAKED_SEEDED=0
+# Computed variables
+SERVER_PID=""
 
-if [ -z "${SERVER_NAME}" ] && [ -n "${HOSTNAME:-}" ] && ! [[ "${HOSTNAME}" =~ ^[0-9a-f]{12,64}$ ]]; then
-    SERVER_NAME="${HOSTNAME}"
-fi
+# Logging
+LOG_DIR="${CONTAINER_HOME}/logs"
+LOG_FILE="${LOG_DIR}/sbox-server.log"
+ERROR_LOG="${LOG_DIR}/sbox-error.log"
+UPDATE_LOG="${LOG_DIR}/sbox-update.log"
+
+# ============================================================================
+# LOGGING FUNCTIONS
+# ============================================================================
+mkdir -p "${LOG_DIR}"
+
+log_info() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: $*" | tee -a "${LOG_FILE}"
+}
+
+log_warn() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $*" | tee -a "${LOG_FILE}" >&2
+}
+
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" | tee -a "${ERROR_LOG}" >&2
+}
+
+# ============================================================================
+# RUNTIME FILE SEEDING
+# ============================================================================
 
 seed_runtime_files() {
     local seed_sbox=0
@@ -41,30 +68,35 @@ seed_runtime_files() {
     elif [ -z "$(find "${SBOX_INSTALL_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ]; then
         seed_sbox=1
         seed_reason="empty install directory"
-    elif [ ! -f "${SBOX_SERVER_EXE}" ]; then
-        seed_sbox=1
-        seed_reason="missing Windows server executable"
-    elif [ "${SBOX_AUTO_UPDATE}" = "1" ] && [ -f "${baked_server_exe}" ] && [ "${baked_server_exe}" -nt "${SBOX_SERVER_EXE}" ]; then
-        seed_sbox=1
-        seed_reason="newer prebaked Windows server executable"
     fi
 
-    mkdir -p "${CONTAINER_HOME}" "${WINEPREFIX}" "${SBOX_INSTALL_DIR}" "${CONTAINER_HOME}/logs" "${STEAMCMD_DIR}" "${SBOX_PROJECTS_DIR}"
+    mkdir -p "${WINEPREFIX}"
+
+    if [ "${seed_sbox}" = "1" ]; then
+        mkdir -p "${SBOX_INSTALL_DIR}"
+    fi
 
     if [ ! -f "${WINEPREFIX}/system.reg" ] && [ -d "${BAKED_WINEPREFIX}/drive_c" ]; then
-        echo "info: seeding Wine prefix from ${BAKED_WINEPREFIX}" >&2
+        log_info "seeding Wine prefix from ${BAKED_WINEPREFIX}"
         cp -r "${BAKED_WINEPREFIX}/." "${WINEPREFIX}/"
     fi
 
     if [ "${seed_sbox}" = "1" ] && [ -f "${baked_server_exe}" ]; then
-        echo "info: seeding S&Box files from ${BAKED_SERVER_TEMPLATE} (${seed_reason})" >&2
+        log_info "seeding S&Box files from ${BAKED_SERVER_TEMPLATE} (${seed_reason})"
         cp -r "${BAKED_SERVER_TEMPLATE}/." "${SBOX_INSTALL_DIR}/"
-        SBOX_PREBAKED_SEEDED=1
+        if [ -f "${SBOX_SERVER_EXE}" ]; then
+            log_info "prebaked S&Box seed complete (${SBOX_SERVER_EXE})"
+        else
+            log_warn "prebaked seed copy completed but ${SBOX_SERVER_EXE} is still missing"
+        fi
     elif [ "${seed_sbox}" = "1" ]; then
-        echo "warn: ${SBOX_INSTALL_DIR} requires reseed (${seed_reason}) but prebaked Windows template is missing ${BAKED_SERVER_TEMPLATE}/sbox-server.exe" >&2
+        log_warn "${SBOX_INSTALL_DIR} requires reseed (${seed_reason}) but prebaked Windows template is missing ${baked_server_exe}"
     fi
-
 }
+
+# ============================================================================
+# PATH RESOLUTION HELPERS
+# ============================================================================
 
 canonicalize_existing_path() {
     local input_path="$1"
@@ -89,12 +121,8 @@ path_is_within_root() {
     local root_path="$2"
 
     case "${candidate_path}" in
-        "${root_path}"|"${root_path}"/*)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
+        "${root_path}"|"${root_path}"/*) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -178,31 +206,20 @@ ensure_project_libraries_dir() {
     libraries_dir="${project_dir}/Libraries"
     if [ ! -d "${libraries_dir}" ]; then
         mkdir -p "${libraries_dir}"
-        echo "info: created required local project folder ${libraries_dir}" >&2
+        log_info "created required local project folder ${libraries_dir}"
     fi
 }
 
-steamcmd_installed() {
-    local steamcmd_bin=""
-
-    steamcmd_bin="$(resolve_steamcmd_binary)"
-    if [ -z "${steamcmd_bin}" ]; then
-        return 1
-    fi
-
-    if [ ! -x "${steamcmd_bin}" ]; then
-        chmod 0755 "${steamcmd_bin}" 2>/dev/null || true
-    fi
-
-    [ -x "${steamcmd_bin}" ]
-}
+# ============================================================================
+# STEAMCMD HELPERS
+# ============================================================================
 
 resolve_steamcmd_binary() {
     local candidate=""
 
     for candidate in \
-        "${STEAMCMD_DIR}/linux32/steamcmd" \
-        "${CONTAINER_HOME}/Steam/linux32/steamcmd"
+        "/usr/bin/steamcmd" \
+        "/usr/games/steamcmd"
     do
         if [ -f "${candidate}" ]; then
             printf '%s' "${candidate}"
@@ -216,39 +233,36 @@ resolve_steamcmd_binary() {
 run_steamcmd() {
     local -a args=("$@")
     local steamcmd_bin=""
-    local steamcmd_root=""
+    local steamcmd_library_path="/lib:/usr/lib/games/steam"
+
+    mkdir -p "${CONTAINER_HOME}/.local/share"
 
     steamcmd_bin="$(resolve_steamcmd_binary || true)"
 
-    if ! steamcmd_installed; then
-        echo "warn: SteamCMD runtime binary was not found (checked ${STEAMCMD_DIR}/linux32/steamcmd and ${CONTAINER_HOME}/Steam/linux32/steamcmd)" >&2
+    if [ -z "${steamcmd_bin}" ]; then
+        log_warn "SteamCMD binary not found in expected locations"
         return 1
     fi
 
-    if [ ! -x "${STEAM_COMPAT_LOADER}" ]; then
-        echo "warn: Steam compatibility loader missing at ${STEAM_COMPAT_LOADER}" >&2
-        return 1
-    fi
-
-    steamcmd_root="$(cd "$(dirname "${steamcmd_bin}")/.." && pwd)"
-
-    if [ ! -e "/lib/ld-linux.so.2" ] && [ -f "${STEAM_COMPAT_LOADER}"; then
-        ln -sf "${STEAM_COMPAT_LOADER}" /lib/ld-linux.so.2 2>/dev/null || true
-    fi
-
-    (
-        cd "${steamcmd_root}"
-        LD_LIBRARY_PATH="${STEAM_COMPAT_LIB_PATH}" \
-        "${STEAM_COMPAT_LOADER}" \
-            --library-path "${STEAM_COMPAT_LIB_PATH}" \
-            "${steamcmd_bin}" \
-            "${args[@]}"
-    )
+    HOME="${CONTAINER_HOME}" LD_LIBRARY_PATH="${steamcmd_library_path}" "${steamcmd_bin}" "${args[@]}"
 }
+
+# ============================================================================
+# UPDATE FUNCTIONS
+# ============================================================================
 
 update_sbox() {
     local -a steam_args
+    local -a probe_args
     local force_platform="windows"
+
+    : > "${UPDATE_LOG}"
+
+    probe_args=(
+        +@ShutdownOnFailedCommand 1
+        +@NoPromptForPassword 1
+        +quit
+    )
 
     steam_args=(
         +@ShutdownOnFailedCommand 1
@@ -265,39 +279,58 @@ update_sbox() {
 
     steam_args+=( validate +quit )
 
-    if ! run_steamcmd +quit; then
-        echo "warn: SteamCMD runtime probe failed; cannot run auto-update" >&2
+    if ! run_steamcmd "${probe_args[@]}" 2>&1 | tee -a "${UPDATE_LOG}"; then
+        log_warn "SteamCMD runtime probe failed; cannot run auto-update"
+        log_warn "see ${UPDATE_LOG} for details"
         if [ ! -f "${SBOX_SERVER_EXE}" ]; then
-            echo "error: SteamCMD probe failed and ${SBOX_SERVER_EXE} is missing" >&2
+            log_error "${SBOX_SERVER_EXE} was not found"
+            log_error "run the egg installation script, or enable auto-update after SteamCMD has been installed"
             return 1
         fi
         return 0
     fi
 
-    echo "info: running SteamCMD app_update for app ${SBOX_APP_ID} with forced platform '${force_platform}'" >&2
-    if ! run_steamcmd "${steam_args[@]}"; then
-        echo "warn: SteamCMD update failed with forced platform '${force_platform}'; refusing Linux fallback to preserve Wine-compatible server files" >&2
+    log_info "running SteamCMD app_update for app ${SBOX_APP_ID} with forced platform '${force_platform}'"
+    if ! run_steamcmd "${steam_args[@]}" 2>&1 | tee -a "${UPDATE_LOG}"; then
+        log_warn "SteamCMD update failed with forced platform '${force_platform}'; refusing Linux fallback to preserve Wine-compatible server files"
+        log_warn "see ${UPDATE_LOG} for details"
         return 1
     fi
 
     if [ ! -f "${SBOX_SERVER_EXE}" ] && [ -d "${SBOX_INSTALL_DIR}/linux64" ]; then
-        echo "warn: update finished but Windows server executable is still missing while linux64 content exists in ${SBOX_INSTALL_DIR}" >&2
+        log_warn "update finished but Windows server executable is still missing while linux64 content exists in ${SBOX_INSTALL_DIR}"
     fi
 }
 
+# ============================================================================
+# MAIN SERVER EXECUTION
+# ============================================================================
+
 run_sbox() {
+    local -a cli_args=("$@")
     local -a args=()
     local -a extra=()
     local -a launch_env=()
+    local -a redacted_args=()
     local project_target=""
+    local resolved_server_name="${SERVER_NAME}"
+    local cli_has_game_flag=0
+    local cli_arg=""
 
     if [ ! -f "${SBOX_SERVER_EXE}" ]; then
-        echo "error: ${SBOX_SERVER_EXE} was not found" >&2
-        echo "error: run the egg installation script, or enable auto-update after SteamCMD has been installed" >&2
+        log_error "${SBOX_SERVER_EXE} was not found. Cannot start S&Box server."
+        log_info "try deleting the /sbox folder to trigger a reseed from the prebaked template."
         exit 1
     fi
 
     project_target="$(resolve_project_target)"
+
+    for cli_arg in "${cli_args[@]}"; do
+        if [ "${cli_arg}" = "+game" ]; then
+            cli_has_game_flag=1
+            break
+        fi
+    done
 
     if [ -n "${project_target}" ]; then
         ensure_project_libraries_dir "${project_target}"
@@ -310,36 +343,95 @@ run_sbox() {
         if [ -n "${MAP}" ]; then
             args+=( "${MAP}" )
         fi
+    elif [ "${cli_has_game_flag}" = "1" ]; then
+        :
     else
-        echo "error: missing startup target; set a project target (SBOX_PROJECT) or provide GAME and MAP (current: GAME='${GAME:-}', MAP='${MAP:-}')." >&2
+        log_error "missing startup target; set a project target (SBOX_PROJECT) or provide GAME and MAP (current: GAME='${GAME:-}', MAP='${MAP:-}')"
         exit 1
     fi
 
-    if [ -n "${SERVER_NAME}" ]; then
-        args+=( +hostname "${SERVER_NAME}" )
+    # Backward compatibility: use HOSTNAME only when SERVER_NAME is empty and
+    # HOSTNAME does not look like a container ID.
+    if [ -z "${resolved_server_name}" ] && [ -n "${HOSTNAME_FALLBACK}" ] && [[ ! "${HOSTNAME_FALLBACK}" =~ ^[0-9a-f]{12,64}$ ]]; then
+        resolved_server_name="${HOSTNAME_FALLBACK}"
+    fi
+
+    if [ -n "${resolved_server_name}" ]; then
+        args+=( +hostname "${resolved_server_name}" )
     fi
 
     if [ -n "${TOKEN}" ]; then
         args+=( +net_game_server_token "${TOKEN}" )
     fi
 
+    # Adds Max Players argument if the variable is set and greater than 0 or "" 
+    if [ -n "${MAX_PLAYERS}" ] && [ "${MAX_PLAYERS}" -gt 0 ]; then
+        args+=( +maxplayers "${MAX_PLAYERS}" )
+    fi
+
+    # Add direct connect option if enabled
+    if [ "${ENABLE_DIRECT_CONNECT}" = "1" ]; then
+        args+=( +net_hide_address 0 +port ${SERVER_PORT:-27015} )
+    fi
+
+    if [ -n "${QUERY_PORT:-}" ]; then
+        args+=( +net_query_port "${QUERY_PORT}" )
+    fi
+
     if [ -n "${SBOX_EXTRA_ARGS}" ]; then
-        read -r -a extra <<< "${SBOX_EXTRA_ARGS}"
+        read -ra extra <<< "${SBOX_EXTRA_ARGS}"
         args+=( "${extra[@]}" )
+    fi
+
+    if [ "${#cli_args[@]}" -gt 0 ]; then
+        args+=( "${cli_args[@]}" )
     fi
 
     unset DOTNET_ROOT DOTNET_ROOT_X86 DOTNET_ROOT_X64
 
     launch_env=(
+        LD_LIBRARY_PATH=/usr/lib:/lib
         DOTNET_EnableWriteXorExecute=0
-        COMPlus_TieredCompilation=0
-        COMPlus_ReadyToRun=0
-        COMPlus_ZapDisable=1
+        DOTNET_TieredCompilation=0
+        DOTNET_ReadyToRun=0
+        DOTNET_ZapDisable=1
     )
 
+    for arg in "${args[@]}"; do
+        if [[ "${arg}" == "+net_game_server_token" ]]; then
+            redacted_args+=( "+net_game_server_token" "[REDACTED]" )
+            # Skip the next iteration to avoid logging the actual token
+            continue
+        fi
+
+        # Only add to redacted if we didn't just skip a token flag
+        if [ -z "${skip_next:-}" ]; then
+            redacted_args+=( "${arg}" )
+        else
+            unset skip_next
+        fi
+    done
+
+    if [ "${ENABLE_DIRECT_CONNECT}" = "1" ]; then
+        log_info "Starting S&Box server in direct-connect mode (port=${SERVER_PORT:-27015}, query_port=${QUERY_PORT:-unset})"
+    else
+        log_info "Starting S&Box server in Steam relay mode"
+    fi
+    log_info "Command: wine \"${SBOX_SERVER_EXE}\" ${redacted_args[*]}"
+
     cd "${SBOX_INSTALL_DIR}"
-    exec env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}"
+    env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}" &
+    SERVER_PID=$!
+    
+    if ! wait "${SERVER_PID}"; then
+        log_error "S&Box server process exited unexpectedly (pid=${SERVER_PID}, exit=$?)"
+        return 1
+    fi
 }
+
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
 
 if [ "${1:-}" = "start-sbox" ]; then
     shift
@@ -347,11 +439,13 @@ fi
 
 seed_runtime_files
 
-if [ "${1:-}" = "" ]; then
-    if [ "${SBOX_AUTO_UPDATE}" = "1" ] || [ "${SBOX_PREBAKED_SEEDED}" = "1" ] || [ ! -f "${SBOX_SERVER_EXE}" ]; then
+if [ "${1:-}" = "" ] || [[ "${1}" = +* ]]; then
+    if [ "${SBOX_AUTO_UPDATE}" = "1" ] || [ ! -f "${SBOX_SERVER_EXE}" ]; then
+        log_info "updating S&Box server files on boot..."
         update_sbox
     fi
-    run_sbox
+    
+    run_sbox "$@"
 fi
 
 exec "$@"

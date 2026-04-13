@@ -8,7 +8,7 @@
     "name": "s&box Game Server",
     "author": "lucky@svn.gg",
     "uuid": "dac2aaa2-4ef2-4220-a0cf-a968e61919f7",
-    "description": "s&box dedicated server using a custom runtime image with baked Wine + Windows .NET, while SteamCMD is installed by the egg installer and server files are managed at runtime.",
+    "description": "s&box dedicated server using a custom runtime image with baked Wine + Windows .NET.",
     "features": [],
     "docker_images": {
         "ghcr.io/hyberhost/gameforge-sbox-egg:latest": "ghcr.io/hyberhost/gameforge-sbox-egg:latest"
@@ -23,9 +23,9 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\nset -euo pipefail\n\nmkdir -p /mnt/server /mnt/server/steamcmd /mnt/server/steamapps\ncd /tmp\nrm -f steamcmd.tar.gz\ncurl -sSL -o steamcmd.tar.gz https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz\ntar -xzvf steamcmd.tar.gz -C /mnt/server/steamcmd --no-same-owner\ncd /mnt/server/steamcmd\nchown -R root:root /mnt/server/steamcmd /mnt/server/.steam || true\nexport HOME=/mnt/server\n\n./steamcmd.sh +quit\n\nmkdir -p /mnt/server/.steam/sdk32\ncp -v linux32/steamclient.so /mnt/server/.steam/sdk32/steamclient.so\nmkdir -p /mnt/server/.steam/sdk64\ncp -v linux64/steamclient.so /mnt/server/.steam/sdk64/steamclient.so\n\necho \"-----------------------------------------\"\necho \"SteamCMD installation completed...\"\necho \"-----------------------------------------\"\n",
-            "container": "ghcr.io/pelican-eggs/installers:debian",
-            "entrypoint": "bash"
+            "script": "#!/bin/bash\nmkdir -p /mnt/server\n",
+            "container": "alpine:3",
+            "entrypoint": "sh"
         }
     },
     "variables": [
