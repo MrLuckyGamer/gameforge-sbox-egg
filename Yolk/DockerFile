@@ -95,9 +95,9 @@ RUN if ! find /work/wineprefix/drive_c -name hostfxr.dll 2>/dev/null | grep -q .
 FROM steamcmd/steamcmd:alpine
 
 LABEL author="Steven A. Smith" maintainer="steven.smith@hyberhost.com"
-LABEL description="S&Box Pterodactyl Egg (dxura-adapted)" version="2.0" license="MIT"
+LABEL description="s&box Pterodactyl Egg" version="2.1" license="MIT"
 LABEL org.opencontainers.image.authors="Steven A. Smith" \
-      org.opencontainers.image.description="S&Box Pterodactyl Egg (dxura-adapted)" \
+      org.opencontainers.image.description="s&box Game Server Egg" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/HyberHost/GameForge-sbox-egg"
 
@@ -141,8 +141,7 @@ RUN apk add --no-cache \
                 wine
 
 RUN mkdir -p \
-         /home/container/.wine \
-        /home/container/.steam \
+        /home/container/.wine \
         /home/container/.local/share \
          /home/container/projects \
          /home/container/logs \

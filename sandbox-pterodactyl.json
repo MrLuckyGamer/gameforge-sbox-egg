@@ -21,9 +21,9 @@
     },
     "scripts": {
         "installation": {
-            "script": "#!/bin/bash\nset -euo pipefail\n\nmkdir -p /mnt/server\n\necho \"Runtime image provides SteamCMD/Wine and baked server assets; no installation steps required.\"\n",
-            "container": "ghcr.io/ptero-eggs/installers:debian",
-            "entrypoint": "bash"
+            "script": "#!/bin/bash\nmkdir -p /mnt/server\n",
+            "container": "alpine:3",
+            "entrypoint": "sh"
         }
     },
     "variables": [
@@ -89,7 +89,7 @@
         },
         {
             "name": "Auto Update",
-            "description": "Automatic server updates. Currently not working at runtime; image rebuild is required.",
+                "description": "Run a SteamCMD update check on every container boot to keep the server up to date (1=enabled, 0=disabled).",
             "env_variable": "SBOX_AUTO_UPDATE",
             "default_value": "1",
             "user_viewable": true,
