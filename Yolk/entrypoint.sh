@@ -493,13 +493,11 @@ run_sbox() {
     log_info "Command: wine \"${SBOX_SERVER_EXE}\" ${redacted_args[*]}"
 
     cd "${SBOX_INSTALL_DIR}"
-    env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}" &
-    SERVER_PID=$!
-    
-    if ! wait "${SERVER_PID}"; then
-        log_error "S&Box server process exited unexpectedly (pid=${SERVER_PID}, exit=$?)"
-        return 1
-    fi
+    # Run server in foreground so Pterodactyl can track the main process.
+    # Tee stdout to `${LOG_FILE}` and stderr to `${ERROR_LOG}` while preserving console output.
+    exec env "${launch_env[@]}" wine "${SBOX_SERVER_EXE}" "${args[@]}" \
+        > >(tee -a "${LOG_FILE}") \
+        2> >(tee -a "${ERROR_LOG}" >&2)
 }
 
 # ============================================================================
